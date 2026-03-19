@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.risk.warning.mapper.RiskScoreMapper">
+
+    <resultMap id="IndustryRiskRankResultMap" type="com.risk.warning.dto.IndustryRiskRankDTO">
+        <result property="tsCode" column="ts_code" />
+        <result property="name" column="name" />
+        <result property="industry" column="industry" />
+        <result property="evalDate" column="eval_date" />
+        <result property="financialScore" column="financial_score" />
+        <result property="marketScore" column="market_score" />
+        <result property="strategicScore" column="strategic_score" />
+        <result property="compositeScore" column="composite_score" />
+    </resultMap>
+
+    <select id="selectRiskRankByIndustry" resultMap="IndustryRiskRankResultMap">
+        SELECT
+            c.ts_code,
+            c.name,
+            c.industry,
+            r.eval_date,
+            r.financial_score,
+            r.market_score,
+            r.strategic_score,
+            r.composite_score
+        FROM
+            company_info c
+                INNER JOIN
+            risk_scores r ON c.ts_code = r.ts_code
+        WHERE
+            c.industry = #{industry}
+          AND r.eval_date = #{evalDate}
+        ORDER BY
+            r.composite_score DESC
+    </select>
+
+</mapper>

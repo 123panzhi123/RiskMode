@@ -1,0 +1,32 @@
+#spring:
+#  datasource:
+#    # 这里是我们第一阶段用 DDL 创建的数据库名 risk_warning_system
+#    url: jdbc:mysql://localhost:3306/risk_warning_system?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+#    # 替换为你本地 MySQL 的真实用户名，通常是 root
+#    username: root
+#    # 替换为你本地 MySQL 的真实密码
+#    password: root
+#    driver-class-name: com.mysql.cj.jdbc.Driver
+
+spring:
+  datasource:
+    # 数据库连接 URL，使用 risk_warning_system 数据库
+    url: jdbc:mysql://localhost:3306/risk_warning_system?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    # 数据库用户名
+    username: root
+    # 数据库密码（已根据 Python 配置修改为 123）
+    password: 123
+    # MySQL JDBC 驱动类
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+
+mybatis:
+  # 告诉 MyBatis 去哪里找之前写的复杂联表查询 XML 文件
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    # 开启驼峰命名自动映射 (如 ts_code 自动映射为 tsCode)
+    map-underscore-to-camel-case: true
+
+server:
+  # 明确指定后端启动在 8080 端口，与前端 Axios 请求保持一致
+  port: 8080

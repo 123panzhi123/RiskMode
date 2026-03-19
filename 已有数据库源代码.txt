@@ -1,0 +1,172 @@
+==============================================================================
+-- 上市公司多维风险画像与预警系统 - 底层物理表结构 DDL (MySQL 8.0)
+-- 字符集: utf8mb4 (支持全量中文字符及生僻字)
+-- 精度规范: 所有金额、比率、得分均严格采用 DECIMAL(18,6)
+-- ==============================================================================
+
+CREATE DATABASE IF NOT EXISTS `risk_warning_system` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+USE `risk_warning_system`;
+
+-- 逆序删除表，避免外键约束报错
+DROP TABLE IF EXISTS `risk_scores`;
+DROP TABLE IF EXISTS `strategic_indicators`;
+DROP TABLE IF EXISTS `market_indicators`;
+DROP TABLE IF EXISTS `financial_indicators`;
+DROP TABLE IF EXISTS `company_info`;
+
+-- ------------------------------------------------------------------------------
+-- 1. 上市公司基础信息表 (静态/极低频数据)
+-- ------------------------------------------------------------------------------
+CREATE TABLE `company_info` (
+    `ts_code` VARCHAR(20) NOT NULL COMMENT '股票代码(主键，如: 000001.SZ)',
+    `symbol` VARCHAR(20) NOT NULL COMMENT '股票交易代码(如: 000001)',
+    `name` VARCHAR(100) NOT NULL COMMENT '公司名称',
+    `industry` VARCHAR(50) NOT NULL COMMENT '所属行业(用于后续按行业动态分组计算权重)',
+    `list_date` DATE NOT NULL COMMENT '上市日期',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录最后更新时间',
+    PRIMARY KEY (`ts_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='上市公司基础信息表';
+
+-- ------------------------------------------------------------------------------
+-- 2. 财务指标表 (低频数据：季频/年频)
+-- ------------------------------------------------------------------------------
+CREATE TABLE `financial_indicators` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `ts_code` VARCHAR(20) NOT NULL COMMENT '股票代码(外键)',
+    `end_date` DATE NOT NULL COMMENT '报告期(如: 2023-12-31)',
+    `current_ratio` DECIMAL(18,6) DEFAULT NULL COMMENT '流动比率 (正向指标)',
+    `quick_ratio` DECIMAL(18,6) DEFAULT NULL COMMENT '速动比率 (正向指标)',
+    `roe` DECIMAL(18,6) DEFAULT NULL COMMENT '净资产收益率 (正向指标)',
+    `gross_margin` DECIMAL(18,6) DEFAULT NULL COMMENT '销售毛利率 (正向指标)',
+    `invturn_days` DECIMAL(18,6) DEFAULT NULL COMMENT '存货周转天数 (负向指标)',
+    `arturn_days` DECIMAL(18,6) DEFAULT NULL COMMENT '应收账款周转天数 (负向指标)',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录最后更新时间',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fk_fin_ts_code` FOREIGN KEY (`ts_code`) REFERENCES `company_info` (`ts_code`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='低频财务指标表';
+
+-- ------------------------------------------------------------------------------
+-- 3. 市场指标表 (高频数据：日频)
+-- ------------------------------------------------------------------------------
+CREATE TABLE `market_indicators` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `ts_code` VARCHAR(20) NOT NULL COMMENT '股票代码(外键)',
+    `trade_date` DATE NOT NULL COMMENT '交易日期',
+    `turnover_rate` DECIMAL(18,6) DEFAULT NULL COMMENT '换手率 (负向指标，过高代表投机风险)',
+    `volume_ratio` DECIMAL(18,6) DEFAULT NULL COMMENT '量比 (负向指标)',
+    `pe` DECIMAL(18,6) DEFAULT NULL COMMENT '市盈率 (动态指标)',
+    `volatility` DECIMAL(18,6) DEFAULT NULL COMMENT '波动率 (负向指标，代表价格不稳定性)',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录最后更新时间',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fk_mkt_ts_code` FOREIGN KEY (`ts_code`) REFERENCES `company_info` (`ts_code`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='高频市场指标表';
+
+-- ------------------------------------------------------------------------------
+-- 4. 战略风险指标表 (低频数据：季频/年频)
+-- ------------------------------------------------------------------------------
+CREATE TABLE `strategic_indicators` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `ts_code` VARCHAR(20) NOT NULL COMMENT '股票代码(外键)',
+    `report_period` DATE NOT NULL COMMENT '报告期',
+    `revenue_growth_rate` DECIMAL(18,6) DEFAULT NULL COMMENT '营收增长率 (正向指标)',
+    `net_profit_growth_rate` DECIMAL(18,6) DEFAULT NULL COMMENT '净利润增长率 (正向指标)',
+    `rd_expense_ratio` DECIMAL(18,6) DEFAULT NULL COMMENT '研发投入占比 (正向指标，代表创新驱动力)',
+    `goodwill_ratio` DECIMAL(18,6) DEFAULT NULL COMMENT '商誉占净资产比重 (负向指标，过高存在暴雷风险)',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录最后更新时间',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fk_str_ts_code` FOREIGN KEY (`ts_code`) REFERENCES `company_info` (`ts_code`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='战略风险指标表';
+
+-- ------------------------------------------------------------------------------
+-- 5. 风险评分结果表 (算法引擎输出结果)
+-- ------------------------------------------------------------------------------
+CREATE TABLE `risk_scores` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `ts_code` VARCHAR(20) NOT NULL COMMENT '股票代码(外键)',
+    `eval_date` DATE NOT NULL COMMENT '评估日期(通常与交易日对齐)',
+    `financial_score` DECIMAL(18,6) NOT NULL COMMENT '财务得分 (基于熵权-TOPSIS计算)',
+    `market_score` DECIMAL(18,6) NOT NULL COMMENT '市场得分 (基于熵权-TOPSIS计算)',
+    `strategic_score` DECIMAL(18,6) NOT NULL COMMENT '战略得分 (基于熵权-TOPSIS计算)',
+    `composite_score` DECIMAL(18,6) NOT NULL COMMENT '综合贴近度评分 (越接近1风险越低，越接近0风险越高)',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录最后更新时间',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fk_rsk_ts_code` FOREIGN KEY (`ts_code`) REFERENCES `company_info` (`ts_code`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='多维风险画像与预警评分结果表';
+
+
+
+
+-- ==============================================================================
+-- 上市公司多维风险画像与预警系统 - 核心查询优化索引 DDL (MySQL 8.0)
+-- 优化目标：
+-- 1. 行业内多公司横向对比（联表查询与最新日期过滤）
+-- 2. 单一公司历史风险趋势纵向追踪（时间区间范围查询）
+-- ==============================================================================
+
+USE `risk_warning_system`;
+
+-- ------------------------------------------------------------------------------
+-- 1. 优化场景：根据特定行业（industry）检索所有公司的最新风险评分
+-- ------------------------------------------------------------------------------
+
+-- 为 company_info 表创建基于 industry 的索引
+-- 原理说明：InnoDB 引擎的二级索引（Secondary Index）叶子节点会自动包含主键（ts_code）。
+-- 因此，创建单列索引 idx_industry 实际上在底层等同于复合索引 (industry, ts_code)。
+-- 当执行 SELECT ts_code FROM company_info WHERE industry = '白酒' 时，
+-- 数据库可以直接通过该索引完成“覆盖索引（Covering Index）”查询，无需回表，极大提升联表速度。
+ALTER TABLE `company_info`
+ADD INDEX `idx_industry` (`industry`) COMMENT '优化按行业筛选公司的查询，底层自动包含主键ts_code形成覆盖索引';
+
+
+-- ------------------------------------------------------------------------------
+-- 2. 优化场景：根据特定股票代码（ts_code）和时间区间绘制历史风险雷达图/K线图
+-- ------------------------------------------------------------------------------
+
+-- 为 risk_scores 表创建 (ts_code, eval_date) 复合索引
+-- 原理说明：严格遵循最左前缀原则。
+-- 业务查询通常为：WHERE ts_code = '000001.SZ' AND eval_date BETWEEN '2023-01-01' AND '2023-12-31'
+-- B+树会先通过 ts_code（等值匹配）快速定位到该股票的数据区块，然后在该区块内按 eval_date（范围匹配）进行顺序扫描。
+-- 此外，该索引也能完美支持获取最新评分的查询：WHERE ts_code = '000001.SZ' ORDER BY eval_date DESC LIMIT 1
+ALTER TABLE `risk_scores`
+ADD INDEX `idx_tscode_evaldate` (`ts_code`, `eval_date`) COMMENT '优化特定股票在特定时间段内的风险评分查询及最新评分获取';
+
+-- 为 market_indicators 表创建 (ts_code, trade_date) 复合索引
+-- 原理说明：日频数据量极大（5000家公司 * 250个交易日 = 每年新增125万条）。
+-- 如果没有此复合索引，按时间区间拉取某只股票的行情数据将导致全表扫描或产生大量的随机磁盘 I/O。
+-- 复合索引使得同一只股票的连续交易日数据在 B+ 树叶子节点上物理相邻，极大提升范围查询效率。
+ALTER TABLE `market_indicators`
+ADD INDEX `idx_tscode_tradedate` (`ts_code`, `trade_date`) COMMENT '优化特定股票高频日度市场行情的区间范围查询';
+
+-- 为 financial_indicators 表创建 (ts_code, end_date) 复合索引
+-- 原理说明：用于在 Python 数据预处理管道中，执行 Pandas 的 merge_asof（时间序列对齐）时，
+-- 能够极其快速地按 ts_code 分组并按 end_date 提取历史财报数据，杜绝未来函数。
+ALTER TABLE `financial_indicators`
+ADD INDEX `idx_tscode_enddate` (`ts_code`, `end_date`) COMMENT '优化特定股票低频财务指标的查询与时间序列对齐';
+
+-- 为 strategic_indicators 表创建 (ts_code, report_period) 复合索引
+-- 原理说明：同上，保障战略维度指标在进行时间切片查询时的高效性。
+ALTER TABLE `strategic_indicators`
+ADD INDEX `idx_tscode_reportperiod` (`ts_code`, `report_period`) COMMENT '优化特定股票战略风险指标的区间查询';
+
+-- ------------------------------------------------------------------------------
+-- 3. 附加优化：针对行业风险排行的复合排序索引
+-- ------------------------------------------------------------------------------
+-- 考虑到业务中可能存在“查询某一天全市场或某行业风险评分最低/最高的公司”
+-- 例如：WHERE eval_date = '2023-10-10' ORDER BY composite_score DESC
+-- 此时最左前缀应为 eval_date（等值），后续跟着 composite_score（排序）。
+ALTER TABLE `risk_scores`
+ADD INDEX `idx_evaldate_score` (`eval_date`, `composite_score`) COMMENT '优化特定日期的全市场/行业风险评分排行与截面数据提取';
+
+
+
+
+-- 追加：添加联合唯一约束，防止 Python 爬虫重复抓取导致脏数据（幂等性保证）
+ALTER TABLE `financial_indicators` ADD UNIQUE KEY `uk_tscode_enddate` (`ts_code`, `end_date`);
+ALTER TABLE `market_indicators` ADD UNIQUE KEY `uk_tscode_tradedate` (`ts_code`, `trade_date`);
+ALTER TABLE `strategic_indicators` ADD UNIQUE KEY `uk_tscode_reportperiod` (`ts_code`, `report_period`);
+ALTER TABLE `risk_scores` ADD UNIQUE KEY `uk_tscode_evaldate` (`ts_code`, `eval_date`);
